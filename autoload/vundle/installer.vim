@@ -456,6 +456,11 @@ func! s:sync(bang, bundle) abort
     return 'error'
   end
 
+  " TODO: if post install fail should we revert back, uninstall the bundle?? since will never run this unless we remove manually.
+  if 0 != s:execute_hook(a:bang, a:bundle)
+    return 'error'
+  endif
+
   if empty(initial_sha)
     return 'new'
   endif
@@ -468,6 +473,60 @@ func! s:sync(bang, bundle) abort
 
   call add(g:vundle#updated_bundles, [initial_sha, updated_sha, a:bundle])
   return 'updated'
+endf
+
+
+" ---------------------------------------------------------------------------
+" Execute hooked event on install or update
+"
+" bang   -- 0 if only new plugins should be installed, 1 if existing plugins
+"           should be updated
+" bundle -- a bundle object (dictionary)
+" return -- error code 
+"            - 0  : No error
+"
+" This function assume v:shell_error initially 0
+" ---------------------------------------------------------------------------
+func! s:execute_hook(bang, bundle)
+  if assert_equal(0, v:shell_error, 'v:shell_error is not 0 before execute hook.')
+    return 1
+  endif
+
+  let cmd = ''
+  if 0 == a:bang && has_key(a:bundle, 'oninstall')
+    let cmd = a:bundle.oninstall
+  elseif 1 == a:bang && has_key(a:bundle, 'onupdate')
+    let cmd = a:bundle.onupdate
+  endif
+
+  if empty(cmd)
+    return 0
+  endif
+
+  " change to plugin path
+  let old_path = getcwd()
+  execute 'cd '.a:bundle.rtpath
+
+  let mode_string = a:bang ? 'update': 'install'
+  let error_code = 0
+  try
+    let out = execute(cmd)
+    call s:log('')
+    call s:log('Plugin '.a:bundle.name_spec.' post '.mode_string.' hook.')
+    call s:log(a:bundle.oninstall, '$ ')
+    call s:log(out, '> ')
+  catch
+    call s:log('')
+    call s:log('Plugin '.a:bundle.name_spec.' post '.mode_string.' hook error.')
+    call s:log(a:bundle.oninstall, '$ ')
+    call s:log(v:exception, '> ')
+    let error_code = 1
+  endtry
+
+  " return to old path
+  execute 'cd '.old_path
+
+  return v:shell_error || error_code
 endf
 
 
